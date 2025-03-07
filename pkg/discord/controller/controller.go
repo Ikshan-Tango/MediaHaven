@@ -50,3 +50,37 @@ func Upload(c echo.Context) error {
 		"message": "File uploaded to Discord successfully!",
 	})
 }
+
+func Download(c echo.Context) error {
+	// Get the file name from query parameters
+	fileName := c.QueryParam("filename")
+	if fileName == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Filename is required",
+		})
+	}
+
+	// Fetch the file from Discord
+	fileContent, err := services.DownloadFromDiscord(fileName)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": fmt.Sprintf("Failed to fetch file from Discord: %s", err),
+		})
+	}
+	// Determine the MIME type based on the file extension
+	contentType := "application/octet-stream" // Default MIME type
+	if len(fileName) > 4 {
+		extension := fileName[len(fileName)-4:]
+		switch extension {
+		case ".jpg", "jpeg":
+			contentType = "image/jpeg"
+		case ".png":
+			contentType = "image/png"
+		case ".gif":
+			contentType = "image/gif"
+		}
+	}
+
+	// Serve the file to the client
+	return c.Blob(http.StatusOK, contentType, fileContent)
+}
