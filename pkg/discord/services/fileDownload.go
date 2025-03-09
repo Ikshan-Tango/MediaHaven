@@ -1,6 +1,9 @@
 package services
 
 import (
+	"crypto/aes"
+	"crypto/cipher"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"log"
@@ -13,13 +16,12 @@ import (
 func DownloadFromDiscord(fileName string) ([]byte, error) {
 	// Create a new Discord session
 	botToken := config.Get().BotToken
-	log.Println("Bot Token:", botToken)
 	dg, err := discordgo.New("Bot " + botToken)
 	if err != nil {
 		log.Println("ERROR - while creating Discord session:", err)
 		return nil, err
 	}
-	discordChannelID := "971806504975994941"
+	discordChannelID := config.Get().ChannelId
 	// Fetch messages from the channel
 	messages, err := dg.ChannelMessages(discordChannelID, 100, "", "", "")
 	if err != nil {
@@ -51,4 +53,36 @@ func DownloadFromDiscord(fileName string) ([]byte, error) {
 
 	return nil, fmt.Errorf("file not found")
 
+}
+
+// Decrypt data using AES
+func DecryptFile(data []byte) ([]byte, error) {
+	// Decode the hex key into a byte slice
+	key, err := hex.DecodeString(config.Get().SecretKey)
+	if err != nil {
+		return nil, fmt.Errorf("invalid key: %v", err)
+	}
+
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create a GCM mode for decryption
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+
+	// Extract the nonce from the encrypted data
+	nonceSize := gcm.NonceSize()
+	nonce, ciphertext := data[:nonceSize], data[nonceSize:]
+
+	// Decrypt the data
+	decrypted, err := gcm.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return decrypted, nil
 }

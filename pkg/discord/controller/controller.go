@@ -24,6 +24,18 @@ func Upload(c echo.Context) error {
 	}
 	defer src.Close()
 
+	fileContent, err := io.ReadAll(src)
+	if err != nil {
+		return err
+	}
+
+	encryptedContent, err := services.EncryptFile(fileContent)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": fmt.Sprintf("Failed to encrypt file: %s", err),
+		})
+	}
+
 	// Create a temporary file
 	tempFile, err := os.CreateTemp("", "upload-*.tmp")
 	if err != nil {
@@ -31,6 +43,11 @@ func Upload(c echo.Context) error {
 	}
 	defer tempFile.Close()
 	defer os.Remove(tempFile.Name())
+
+	// Write the encrypted content to the temporary file
+	if _, err = tempFile.Write(encryptedContent); err != nil {
+		return err
+	}
 
 	// Copy the uploaded file to the temporary file
 	if _, err = io.Copy(tempFile, src); err != nil {
@@ -61,10 +78,17 @@ func Download(c echo.Context) error {
 	}
 
 	// Fetch the file from Discord
-	fileContent, err := services.DownloadFromDiscord(fileName)
+	encryptedFileContent, err := services.DownloadFromDiscord(fileName)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{
 			"error": fmt.Sprintf("Failed to fetch file from Discord: %s", err),
+		})
+	}
+	// Decrypt the file content
+	decryptedContent, err := services.DecryptFile(encryptedFileContent)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": fmt.Sprintf("Failed to decrypt file: %s", err),
 		})
 	}
 	// Determine the MIME type based on the file extension
@@ -82,5 +106,5 @@ func Download(c echo.Context) error {
 	}
 
 	// Serve the file to the client
-	return c.Blob(http.StatusOK, contentType, fileContent)
+	return c.Blob(http.StatusOK, contentType, decryptedContent)
 }
