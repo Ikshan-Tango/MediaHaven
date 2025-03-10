@@ -6,35 +6,20 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"mediahaven/pkg/config"
-	"os"
 
 	"github.com/bwmarrin/discordgo"
 )
 
-func UploadToDiscord(filePath, fileName string) error {
-	discordToken := config.Get().BotToken
-	// Create a new Discord session
-	dg, err := discordgo.New("Bot " + discordToken)
-	if err != nil {
-		return err
-	}
-
-	// Open the file
-	file, err := os.Open(filePath)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	// Upload the file to Discord
+func UploadToDiscord(filename string, fileContent io.Reader) error {
+	dg, err := discordgo.New("Bot " + config.Get().BotToken)
 	discordChannelID := config.Get().ChannelId
-	_, err = dg.ChannelFileSend(discordChannelID, fileName, file)
 	if err != nil {
 		return err
 	}
-
-	return nil
+	_, err = dg.ChannelFileSend(discordChannelID, filename, fileContent)
+	return err
 }
 
 // Encrypt data using AES

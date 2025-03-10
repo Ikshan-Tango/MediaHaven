@@ -6,53 +6,90 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"log"
 	"mediahaven/pkg/config"
 	"net/http"
+	"sort"
+	"strconv"
+	"strings"
 
 	"github.com/bwmarrin/discordgo"
 )
 
-func DownloadFromDiscord(fileName string) ([]byte, error) {
-	// Create a new Discord session
+func DownloadFromDiscord(baseName string) ([][]byte, error) {
 	botToken := config.Get().BotToken
 	dg, err := discordgo.New("Bot " + botToken)
 	if err != nil {
-		log.Println("ERROR - while creating Discord session:", err)
-		return nil, err
-	}
-	discordChannelID := config.Get().ChannelId
-	// Fetch messages from the channel
-	messages, err := dg.ChannelMessages(discordChannelID, 100, "", "", "")
-	if err != nil {
-		log.Println("ERROR - while fetching messages from Discord:", err)
-		return nil, err
+		return nil, fmt.Errorf("discord session failed: %w", err)
 	}
 
-	// Iterate through messages to find the file
+	discordChannelID := config.Get().ChannelId
+	messages, err := dg.ChannelMessages(discordChannelID, 100, "", "", "")
+	if err != nil {
+		return nil, fmt.Errorf("message fetch failed: %w", err)
+	}
+
+	var chunks [][]byte
+	var chunkNumbers []int
+
+	// Collect all matching chunks
 	for _, message := range messages {
 		for _, attachment := range message.Attachments {
-			if attachment.Filename == fileName {
-				// Download the file
+			if strings.HasPrefix(attachment.Filename, baseName+".part") {
+				// Extract chunk number
+				parts := strings.Split(attachment.Filename, ".part")
+				if len(parts) != 2 {
+					continue
+				}
+
+				chunkNum, err := strconv.Atoi(parts[1])
+				if err != nil {
+					continue
+				}
+
+				// Download chunk content
 				resp, err := http.Get(attachment.URL)
 				if err != nil {
-					return nil, err
+					return nil, fmt.Errorf("chunk download failed: %w", err)
 				}
 				defer resp.Body.Close()
 
-				// Read the file content
-				fileContent, err := io.ReadAll(resp.Body)
+				content, err := io.ReadAll(resp.Body)
 				if err != nil {
-					return nil, err
+					return nil, fmt.Errorf("chunk read failed: %w", err)
 				}
 
-				return fileContent, nil
+				chunks = append(chunks, content)
+				chunkNumbers = append(chunkNumbers, chunkNum)
 			}
 		}
 	}
 
-	return nil, fmt.Errorf("file not found")
+	if len(chunks) == 0 {
+		return nil, fmt.Errorf("no chunks found for %s", baseName)
+	}
 
+	// Sort chunks by part number
+	sort.Slice(chunks, func(i, j int) bool {
+		return chunkNumbers[i] < chunkNumbers[j]
+	})
+
+	return chunks, nil
+}
+
+func CombineAndDecryptChunks(chunks [][]byte) ([]byte, error) {
+	// Combine chunks in order
+	var combined []byte
+	for _, chunk := range chunks {
+		combined = append(combined, chunk...)
+	}
+
+	// Decrypt the combined content
+	decrypted, err := DecryptFile(combined)
+	if err != nil {
+		return nil, fmt.Errorf("decryption failed: %w", err)
+	}
+
+	return decrypted, nil
 }
 
 // Decrypt data using AES
